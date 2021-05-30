@@ -6,7 +6,6 @@ Licensed under the MIT license.
 package controllers_test
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -20,18 +19,11 @@ func Test_ResourceGroup_CRUD(t *testing.T) {
 	t.Parallel()
 
 	g := NewGomegaWithT(t)
-	ctx := context.Background()
-	testContext, err := testContext.ForTest(t)
-	g.Expect(err).ToNot(HaveOccurred())
-
-	kubeClient := testContext.KubeClient
+	testContext := testContext.ForTest(t)
 
 	// Create a resource group
 	rg := testContext.NewTestResourceGroup()
-	g.Expect(kubeClient.Create(ctx, rg)).To(Succeed())
-
-	// It should be created in Kubernetes
-	g.Eventually(rg, remainingTime(t)).Should(testContext.Match.BeProvisioned(ctx))
+	testContext.CreateAndWait(rg)
 
 	// check properties
 	g.Expect(rg.Status.Location).To(Equal(testContext.AzureRegion))
@@ -41,26 +33,24 @@ func Test_ResourceGroup_CRUD(t *testing.T) {
 
 	// Update the tags
 	rg.Spec.Tags["tag1"] = "value1"
-	g.Expect(kubeClient.Update(ctx, rg)).To(Succeed())
+	testContext.Update(rg)
 
 	objectKey, err := client.ObjectKeyFromObject(rg)
 	g.Expect(err).ToNot(HaveOccurred())
 
 	// ensure they get updated
-	g.Eventually(func() map[string]string {
+	testContext.Eventually(func() map[string]string {
 		newRG := &resources.ResourceGroup{}
-		g.Expect(kubeClient.Get(ctx, objectKey, newRG)).To(Succeed())
+		testContext.Get(objectKey, newRG)
 		return newRG.Status.Tags
-	}, remainingTime(t)).Should(HaveKeyWithValue("tag1", "value1"))
+	}).Should(HaveKeyWithValue("tag1", "value1"))
 
-	// Delete the resource group
-	g.Expect(kubeClient.Delete(ctx, rg)).To(Succeed())
-	g.Eventually(rg, remainingTime(t)).Should(testContext.Match.BeDeleted(ctx))
+	testContext.DeleteAndWait(rg)
 
 	// Ensure that the resource group was really deleted in Azure
 	// TODO: Do we want to just use an SDK here? This process is quite icky as is...
 	exists, _, err := testContext.AzureClient.HeadResource(
-		ctx,
+		testContext.Ctx,
 		armId,
 		"2020-06-01")
 	g.Expect(err).ToNot(HaveOccurred())

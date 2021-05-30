@@ -6,7 +6,6 @@ Licensed under the MIT license.
 package controllers_test
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -18,13 +17,9 @@ import (
 func Test_CosmosDB_CRUD(t *testing.T) {
 	t.Parallel()
 
-	g := NewGomegaWithT(t)
-	ctx := context.Background()
-	testContext, err := testContext.ForTest(t)
-	g.Expect(err).ToNot(HaveOccurred())
+	testContext := testContext.ForTest(t)
 
-	rg, err := testContext.CreateNewTestResourceGroup(testcommon.WaitForCreation)
-	g.Expect(err).ToNot(HaveOccurred())
+	rg := testContext.CreateNewTestResourceGroupAndWait()
 
 	// Custom namer because storage accounts have strict names
 	namer := testContext.Namer.WithSeparator("")
@@ -47,16 +42,13 @@ func Test_CosmosDB_CRUD(t *testing.T) {
 			},
 		},
 	}
-	err = testContext.KubeClient.Create(ctx, acct)
-	g.Expect(err).ToNot(HaveOccurred())
 
-	// It should be created in Kubernetes
-	g.Eventually(acct).Should(testContext.Match.BeProvisioned(ctx))
+	testContext.CreateAndWait(acct)
 
 	expectedKind := documentdb.DatabaseAccountStatusKindGlobalDocumentDB
-	g.Expect(*acct.Status.Kind).To(Equal(expectedKind))
+	testContext.Expect(*acct.Status.Kind).To(Equal(expectedKind))
 
-	g.Expect(acct.Status.Id).ToNot(BeNil())
+	testContext.Expect(acct.Status.Id).ToNot(BeNil())
 	armId := *acct.Status.Id
 
 	// Run sub-tests
@@ -66,14 +58,11 @@ func Test_CosmosDB_CRUD(t *testing.T) {
 		})
 	*/
 
-	// Delete
-	err = testContext.KubeClient.Delete(ctx, acct)
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Eventually(acct).Should(testContext.Match.BeDeleted(ctx))
+	testContext.DeleteAndWait(acct)
 
 	// Ensure that the resource group was really deleted in Azure
-	exists, retryAfter, err := testContext.AzureClient.HeadResource(ctx, armId, "2015-04-08")
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(retryAfter).To(BeZero())
-	g.Expect(exists).To(BeFalse())
+	exists, retryAfter, err := testContext.AzureClient.HeadResource(testContext.Ctx, armId, "2015-04-08")
+	testContext.Expect(err).ToNot(HaveOccurred())
+	testContext.Expect(retryAfter).To(BeZero())
+	testContext.Expect(exists).To(BeFalse())
 }

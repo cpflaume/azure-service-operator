@@ -6,7 +6,6 @@ Licensed under the MIT license.
 package controllers_test
 
 import (
-	"context"
 	"testing"
 
 	. "github.com/onsi/gomega"
@@ -19,13 +18,9 @@ import (
 func Test_ServiceBus_Standard_CRUD(t *testing.T) {
 	t.Parallel()
 
-	g := NewGomegaWithT(t)
-	ctx := context.Background()
-	testContext, err := testContext.ForTest(t)
-	g.Expect(err).ToNot(HaveOccurred())
+	testContext := testContext.ForTest(t)
 
-	rg, err := testContext.CreateNewTestResourceGroup(testcommon.WaitForCreation)
-	g.Expect(err).ToNot(HaveOccurred())
+	rg := testContext.CreateNewTestResourceGroupAndWait()
 
 	zoneRedundant := false
 	namespace := &servicebus.Namespace{
@@ -42,39 +37,33 @@ func Test_ServiceBus_Standard_CRUD(t *testing.T) {
 		},
 	}
 
-	// Create
-	g.Expect(testContext.KubeClient.Create(ctx, namespace)).To(Succeed())
-	g.Eventually(namespace, remainingTime(t)).Should(testContext.Match.BeProvisioned(ctx))
+	testContext.CreateAndWait(namespace)
 
-	g.Expect(namespace.Status.Id).ToNot(BeNil())
+	testContext.Expect(namespace.Status.Id).ToNot(BeNil())
 	armId := *namespace.Status.Id
 
-	RunParallelSubtests(t,
-		subtest{
-			name: "Queue CRUD",
-			test: func(t *testing.T) { ServiceBus_Queue_CRUD(t, testContext, namespace.ObjectMeta) },
+	testContext.RunParallelSubtests(
+		testcommon.Subtest{
+			Name: "Queue CRUD",
+			Test: func(t testcommon.KubePerTestContext) { ServiceBus_Queue_CRUD(testContext, namespace.ObjectMeta) },
 		},
-		subtest{
-			name: "Topic CRUD",
-			test: func(t *testing.T) { ServiceBus_Topic_CRUD(t, testContext, namespace.ObjectMeta) },
+		testcommon.Subtest{
+			Name: "Topic CRUD",
+			Test: func(t testcommon.KubePerTestContext) { ServiceBus_Topic_CRUD(testContext, namespace.ObjectMeta) },
 		},
 	)
 
-	// Delete
-	g.Expect(testContext.KubeClient.Delete(ctx, namespace)).To(Succeed())
-	g.Eventually(namespace, remainingTime(t)).Should(testContext.Match.BeDeleted(ctx))
+	testContext.DeleteAndWait(namespace)
 
 	// Ensure that the resource was really deleted in Azure
-	exists, retryAfter, err := testContext.AzureClient.HeadResource(ctx, armId, "2018-01-01-preview")
-	g.Expect(err).ToNot(HaveOccurred())
-	g.Expect(retryAfter).To(BeZero())
-	g.Expect(exists).To(BeFalse())
+	exists, retryAfter, err := testContext.AzureClient.HeadResource(testContext.Ctx, armId, "2018-01-01-preview")
+	testContext.Expect(err).ToNot(HaveOccurred())
+	testContext.Expect(retryAfter).To(BeZero())
+	testContext.Expect(exists).To(BeFalse())
 }
 
 // Topics can only be created in Standard or Premium SKUs
-func ServiceBus_Topic_CRUD(t *testing.T, testContext testcommon.KubePerTestContext, sbNamespace metav1.ObjectMeta) {
-	ctx := context.Background()
-	g := NewGomegaWithT(t)
+func ServiceBus_Topic_CRUD(testContext testcommon.KubePerTestContext, sbNamespace metav1.ObjectMeta) {
 
 	topic := &servicebus.NamespacesTopic{
 		ObjectMeta: testContext.MakeObjectMeta("topic"),
@@ -84,16 +73,12 @@ func ServiceBus_Topic_CRUD(t *testing.T, testContext testcommon.KubePerTestConte
 		},
 	}
 
-	// Create
-	g.Expect(testContext.KubeClient.Create(ctx, topic)).To(Succeed())
-	g.Eventually(topic, remainingTime(t)).Should(testContext.Match.BeProvisioned(ctx))
+	testContext.CreateAndWait(topic)
+	defer testContext.DeleteAndWait(topic)
 
-	g.Expect(topic.Status.Id).ToNot(BeNil())
+	testContext.Expect(topic.Status.Id).ToNot(BeNil())
 
 	// a basic assertion on a property
-	g.Expect(topic.Status.Properties.SizeInBytes).ToNot(BeNil())
-	g.Expect(*topic.Status.Properties.SizeInBytes).To(Equal(0))
-
-	g.Expect(testContext.KubeClient.Delete(ctx, topic)).To(Succeed())
-	g.Eventually(topic, remainingTime(t)).Should(testContext.Match.BeDeleted(ctx))
+	testContext.Expect(topic.Status.Properties.SizeInBytes).ToNot(BeNil())
+	testContext.Expect(*topic.Status.Properties.SizeInBytes).To(Equal(0))
 }
